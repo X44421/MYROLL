@@ -1,4 +1,5 @@
 import { ILUTProcessor, RenderParams } from './processor';
+import { createGrainAtlas, FILM_GRAIN_GLSL } from './filmGrain';
 
 function checkGlError(gl: WebGL2RenderingContext, label: string) {
   const err = gl.getError();
@@ -172,9 +173,9 @@ export class LUTProcessor implements ILUTProcessor {
     gl.bindTexture(gl.TEXTURE_2D, this.leakTexture);
     gl.uniform1i(this.leakTextureLoc, 3);
 
-    // Generate and bind Perlin noise texture for grain Type coarse (unit 4)
-    this.grainTex = this.generatePerlinTexture(gl, 256, 64);
+    // The same deterministic correlated fields serve every grain type (unit 4).
     gl.activeTexture(gl.TEXTURE4);
+    this.grainTex = this.generateGrainTexture(gl);
     gl.bindTexture(gl.TEXTURE_2D, this.grainTex);
     gl.uniform1i(this.grainTexLoc, 4);
   }
@@ -194,6 +195,8 @@ export class LUTProcessor implements ILUTProcessor {
     // Fragment Shader: Applies professional grade color adjustments
     const fragmentShaderSource = `#version 300 es
       precision highp float;
+      precision highp int;
+      precision highp sampler2D;
       precision highp sampler3D;
       
       in vec2 vUv;
@@ -271,26 +274,7 @@ export class LUTProcessor implements ILUTProcessor {
           return fract((p3.xxy+p3.yzz)*p3.zyx);
       }
       
-      // Vectorized Value Noise for Clumping (Returns vec3 for RGB correlation)
-      vec3 vlnoise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          // Quintic smoothstep for organic look
-          f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-          vec3 a = hash32(i);
-          vec3 b = hash32(i + vec2(1.0, 0.0));
-          vec3 c = hash32(i + vec2(0.0, 1.0));
-          vec3 d = hash32(i + vec2(1.0, 1.0));
-          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
-
-      // Standard Photoshop soft-light blend (blend in [0, 1]).
-      vec3 softLight(vec3 base, vec3 blend) {
-          vec3 d = step(blend, vec3(0.5));
-          vec3 dark = 2.0 * base * blend + base * base * (1.0 - 2.0 * blend);
-          vec3 light = 2.0 * base * (1.0 - blend) + sqrt(base) * (2.0 * blend - 1.0);
-          return mix(light, dark, d);
-      }
+      ${FILM_GRAIN_GLSL}
       
       // Tetrahedral Interpolation for extreme accuracy (Filmic standard)
       vec3 sampleTetrahedral(sampler3D tex, vec3 c, float size) {
@@ -720,73 +704,7 @@ export class LUTProcessor implements ILUTProcessor {
             vec2 grainCoord = (uImageSize.x > 0.0 && uImageSize.y > 0.0)
                 ? (vUv * uImageSize)
                 : gl_FragCoord.xy;
-            vec2 px = floor(grainCoord);
-
-            // Dynamic grain clumping and size aggregation depending on local luminance.
-            // Midtones/highlights: larger clumps; shadows: finer particles.
-            float localLuma = clamp(dot(rgb, LUMA), 0.0, 1.0);
-            float grainScaleMod = mix(1.85, 0.82, localLuma) * uGrainSize;
-
-            // Irrational rotation angles for each layered color sensitive emulsion layer.
-            float angleR = filmTime * 0.113 + 0.337;
-            float angleG = filmTime * 0.151 + 1.618;
-            float angleB = filmTime * 0.197 + 3.141;
-            mat2 rotR = mat2(cos(angleR), -sin(angleR), sin(angleR), cos(angleR));
-            mat2 rotG = mat2(cos(angleG), -sin(angleG), sin(angleG), cos(angleG));
-            mat2 rotB = mat2(cos(angleB), -sin(angleB), sin(angleB), cos(angleB));
-
-            vec2 pxR = (rotR * px) * 1.55 * grainScaleMod;
-            vec2 pxG = (rotG * px) * 0.98 * grainScaleMod;
-            vec2 pxB = (rotB * px) * 0.54 * grainScaleMod;
-
-            vec3 noiseVec;
-            if (uGrainType < 0.5) {
-                noiseVec = vec3(
-                    vlnoise(pxR + vec2(filmTime * 1.05)).r,
-                    vlnoise(pxG + vec2(17.0, 31.0) + vec2(filmTime * 1.15)).g,
-                    vlnoise(pxB + vec2(-43.0, 97.0) + vec2(filmTime * 1.25)).b
-                );
-            } else {
-                // Coarse noise uses the Perlin texture. One hash per channel supplies both jitter axes.
-                float cellSize = 4.0;
-                vec2 cR = floor((rotR * grainCoord) / cellSize);
-                vec2 jR = hash32(cR + vec2(filmTime, 0.0)).xy * 2.0;
-                vec2 cG = floor((rotG * grainCoord) / cellSize);
-                vec2 jG = hash32(cG + vec2(filmTime, 3.0)).xy * 2.0;
-                vec2 cB = floor((rotB * grainCoord) / cellSize);
-                vec2 jB = hash32(cB + vec2(filmTime, 7.0)).xy * 2.0;
-
-                vec2 uvRc = (rotR * grainCoord * 0.008 + jR + vec2(filmTime * 0.5)) / 64.0;
-                vec2 uvGc = (rotG * grainCoord * 0.008 + jG + vec2(17.0, 31.0) + vec2(filmTime * 0.5)) / 64.0;
-                vec2 uvBc = (rotB * grainCoord * 0.008 + jB + vec2(-43.0, 97.0) + vec2(filmTime * 0.5)) / 64.0;
-                vec3 coarseNoise = vec3(
-                    texture(uGrainTex, uvRc).r,
-                    texture(uGrainTex, uvGc).r,
-                    texture(uGrainTex, uvBc).r
-                );
-
-                if (uGrainType < 1.5) {
-                    vec3 fineNoise = vec3(
-                        vlnoise(pxR + vec2(filmTime * 1.05)).r,
-                        vlnoise(pxG + vec2(17.0, 31.0) + vec2(filmTime * 1.15)).g,
-                        vlnoise(pxB + vec2(-43.0, 97.0) + vec2(filmTime * 1.25)).b
-                    );
-                    noiseVec = mix(fineNoise, coarseNoise, vec3(0.3, 0.5, 0.7));
-                } else {
-                    float fineRed = vlnoise(pxR + vec2(filmTime * 1.05)).r;
-                    noiseVec = vec3(mix(fineRed, coarseNoise.r, 0.6), coarseNoise.g, coarseNoise.b);
-                }
-            }
-            noiseVec = (noiseVec - 0.5) * 2.0;
-
-            // Keep mostly luma noise to avoid color confetti.
-            float noiseLuma = dot(noiseVec, vec3(0.299, 0.587, 0.114));
-            noiseVec = mix(vec3(noiseLuma), noiseVec, 0.15);
-
-            vec3 noiseAmp = noiseVec * uGrain * 3.0;
-            noiseAmp = clamp(noiseAmp, -1.0, 1.0);
-            vec3 grainLayer = noiseAmp * 0.5 + 0.5;
-            rgb = clamp(softLight(rgb, grainLayer), 0.0, 1.0);
+            rgb = applyFilmGrain(rgb, grainCoord, uGrain, uGrainSize, uGrainType, filmTime);
 
             // Transient dust/fibers only in video/camera mode so still exports stay clean.
             if (uIsVideo > 0.5) {
@@ -1062,7 +980,8 @@ export class LUTProcessor implements ILUTProcessor {
     if (grainType !== p.grainType) { gl.uniform1f(this.grainTypeLoc, grainType ?? 1); p.grainType = grainType; }
     if (time !== p.time) { gl.uniform1f(this.timeLoc, time); p.time = time; }
     if (isVideo !== p.isVideo) { gl.uniform1f(this.isVideoLoc, isVideo ? 1.0 : 0.0); p.isVideo = isVideo; }
-    if (grainSeed !== p.grainSeed) { gl.uniform1f(this.grainSeedLoc, grainSeed ?? 1.337); p.grainSeed = grainSeed; }
+    const stableGrainSeed = grainSeed ?? 1.337;
+    if (stableGrainSeed !== p.grainSeed) { gl.uniform1f(this.grainSeedLoc, stableGrainSeed); p.grainSeed = stableGrainSeed; }
     const stableLeakSeed = leakSeed ?? 0.337;
     if (stableLeakSeed !== p.leakSeed) { gl.uniform1f(this.leakSeedLoc, stableLeakSeed); p.leakSeed = stableLeakSeed; }
     if (lightLeak !== p.lightLeak) { gl.uniform1f(this.lightLeakLoc, lightLeak); p.lightLeak = lightLeak; }
@@ -1163,41 +1082,18 @@ export class LUTProcessor implements ILUTProcessor {
     return tex;
   }
 
-  private generatePerlinTexture(gl: WebGL2RenderingContext, size: number, gridSize: number): WebGLTexture {
-    const grads: { x: number; y: number }[][] = [];
-    for (let gy = 0; gy <= gridSize; gy++) {
-      grads[gy] = [];
-      for (let gx = 0; gx <= gridSize; gx++) {
-        const a = Math.random() * 2 * Math.PI;
-        grads[gy][gx] = { x: Math.cos(a), y: Math.sin(a) };
-      }
-    }
-    const dot = (gi: number, gj: number, x: number, y: number) =>
-      (x - gi) * grads[gj][gi].x + (y - gj) * grads[gj][gi].y;
-    const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
-    const data = new Uint8Array(size * size);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const gxf = (x / size) * gridSize, gyf = (y / size) * gridSize;
-        const ix = Math.floor(gxf), iy = Math.floor(gyf);
-        const fx = gxf - ix, fy = gyf - iy;
-        const u = fade(fx), v = fade(fy);
-        const n = dot(ix, iy, gxf, gyf) * (1 - u) * (1 - v)
-                + dot(ix + 1, iy, gxf, gyf) * u * (1 - v)
-                + dot(ix, iy + 1, gxf, gyf) * (1 - u) * v
-                + dot(ix + 1, iy + 1, gxf, gyf) * u * v;
-        data[y * size + x] = ((n * 0.5 + 0.5) * 255) | 0;
-      }
-    }
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, size, size, 0, gl.RED, gl.UNSIGNED_BYTE, data);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  private generateGrainTexture(gl: WebGL2RenderingContext): WebGLTexture {
+    const texture = gl.createTexture();
+    if (!texture) throw new Error('Failed to create grain texture');
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    createGrainAtlas().forEach(({ size, data }, level) => {
+      gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA8, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    return tex;
+    return texture;
   }
 
   public exportToDataURL(params: RenderParams, type: string = 'image/jpeg', quality: number = 0.95): string {

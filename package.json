@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:grain": "node scripts/verify-grain.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -41,6 +43,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.21",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
