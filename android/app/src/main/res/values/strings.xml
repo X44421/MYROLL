@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MyRoll</string>
+    <string name="title_activity_main">MyRoll</string>
+    <string name="package_name">com.myroll.app</string>
+    <string name="custom_url_scheme">com.myroll.app</string>
+</resources>

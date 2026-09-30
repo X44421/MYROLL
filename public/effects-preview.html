@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Grain Test Platform</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #controls {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; gap: 10px; align-items: flex-end;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(12px);
+    padding: 10px 16px; z-index: 10;
+    overflow-x: auto; flex-wrap: nowrap;
+  }
+  #controls .group {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    flex-shrink: 0;
+  }
+  #controls .group label {
+    font-size: 9px; color: rgba(255,255,255,0.5);
+    letter-spacing: 0.3px; white-space: nowrap;
+  }
+  #controls .group .value { font-size: 11px; color: #fff; font-weight: 500; min-width: 28px; text-align: center; }
+  #controls input[type=range] { width: 72px; accent-color: #fff; height: 14px; }
+  #controls select {
+    background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; padding: 4px 6px; font-size: 10px; cursor: pointer;
+    font-family: 'Inter', sans-serif; outline: none;
+  }
+  .type-group { display: flex; gap: 3px; }
+  .type-btn {
+    padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2);
+    background: transparent; color: rgba(255,255,255,0.5); font-size: 10px;
+    cursor: pointer; transition: all 0.15s; font-family: 'Inter', sans-serif;
+  }
+  .type-btn.active { background: #fff; color: #000; border-color: #fff; }
+  .type-btn:hover { color: rgba(255,255,255,0.8); }
+  #fileInput { position: fixed; top: 0; left: 0; opacity: 0; width: 0.1px; height: 0.1px; z-index: 0; }
+  #importBtn {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(255,255,255,0.1); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 13px;
+    padding: 8px 20px; border-radius: 30px; cursor: pointer;
+    transition: background 0.2s; font-family: 'Inter', sans-serif;
+  }
+  #importBtn:hover { background: rgba(255,255,255,0.2); }
+  #info {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 10;
+    color: rgba(255,255,255,0.3); font-size: 12px; text-align: center;
+    pointer-events: none; transition: opacity 0.5s;
+  }
+  #status {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    color: rgba(255,255,255,0.4); font-size: 10px; text-align: right;
+    pointer-events: none;
+  }
+  #controls .group .row-label { font-size: 9px; color: rgba(255,255,255,0.3); letter-spacing: 0.5px; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<input type="file" accept="image/*" id="fileInput">
+<button id="importBtn">+ Import Photo</button>
+<div id="info">Import a photo to test grain algorithms</div>
+<div id="status"></div>
+
+<div id="controls">
+  <div class="group">
+    <label>Grain <span class="value" id="grainVal">0.50</span></label>
+    <input type="range" id="grainIntensity" min="0" max="2" step="0.01" value="0.5">
+  </div>
+  <div class="group">
+    <label>Size <span class="value" id="sizeVal">1.00</span></label>
+    <input type="range" id="grainSize" min="0.1" max="5" step="0.05" value="1">
+  </div>
+  <div class="group" style="gap:4px">
+    <label>Type</label>
+    <div class="type-group">
+      <button class="type-btn" data-type="0">Fine</button>
+      <button class="type-btn active" data-type="1">Medium</button>
+      <button class="type-btn" data-type="2">Coarse</button>
+    </div>
+  </div>
+  <div class="group">
+    <label>Noise</label>
+    <select id="noiseType">
+      <option value="0">Value</option>
+      <option value="1">Pink</option>
+      <option value="2">Perlin</option>
+    </select>
+  </div>
+  <div class="group">
+    <label>Render</label>
+    <select id="renderMode">
+      <option value="0">Single</option>
+      <option value="1" selected>Multi</option>
+      <option value="2">3D</option>
+    </select>
+  </div>
+  <div class="group">
+    <label>Blend</label>
+    <select id="blendMode">
+      <option value="0" selected>Gamma</option>
+      <option value="1">Linear</option>
+      <option value="2">Overlay</option>
+    </select>
+  </div>
+  <div class="group">
+    <label>Resolution</label>
+    <select id="texRes">
+      <option value="128">128</option>
+      <option value="256">256</option>
+      <option value="512" selected>512</option>
+      <option value="1024">1024</option>
+      <option value="2048">2048</option>
+    </select>
+  </div>
+  <div class="group">
+    <label>Grid</label>
+    <select id="gridSize">
+      <option value="16">16</option>
+      <option value="32">32</option>
+      <option value="64" selected>64</option>
+      <option value="128">128</option>
+      <option value="256">256</option>
+      <option value="512">512</option>
+    </select>
+  </div>
+  <div style="width:1px;height:32px;background:rgba(255,255,255,0.1);flex-shrink:0"></div>
+  <div class="group">
+    <label>Bloom <span class="value" id="bloomVal">1.40</span></label>
+    <input type="range" id="bloomStrength" min="0" max="2.5" step="0.01" value="1.4">
+  </div>
+  <div class="group">
+    <label>Shift <span class="value" id="shiftVal">0.003</span></label>
+    <input type="range" id="shiftAmount" min="0" max="0.015" step="0.0005" value="0.003">
+  </div>
+  <div style="width:1px;height:32px;background:rgba(255,255,255,0.1);flex-shrink:0"></div>
+  <div class="group">
+    <label>H Strength <span class="value" id="halStrVal">0.60</span></label>
+    <input type="range" id="halStrength" min="0" max="2" step="0.01" value="0.6">
+  </div>
+  <div class="group">
+    <label>H Radius <span class="value" id="halRadVal">50</span></label>
+    <input type="range" id="halRadius" min="0" max="100" step="1" value="50">
+  </div>
+  <div class="group">
+    <label>H Thresh <span class="value" id="halThrVal">0.50</span></label>
+    <input type="range" id="halThreshold" min="0.1" max="1" step="0.01" value="0.5">
+  </div>
+  <div class="group">
+    <label>Film</label>
+    <select id="halFilmType">
+      <option value="0">B&W</option>
+      <option value="1" selected>Color</option>
+    </select>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
+
+const W = window.innerWidth, H = window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+camera.position.z = 1;
+
+const geometry = new THREE.PlaneGeometry(2, 2);
+const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const mesh = new THREE.Mesh(geometry, material);
+scene.add(mesh);
+
+// --- Halation: scene render target for Composite pass ---
+const sceneRT = new THREE.WebGLRenderTarget(W, H, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  type: THREE.HalfFloatType,
+});
+
+// --- Noise Texture Generation (Web Worker) ---
+
+const noiseWorkerBlob = URL.createObjectURL(new Blob([`
+self.onmessage = function(e) {
+  const { id, type, size, grid } = e.data;
+  let data;
+  switch (type) {
+    case 0: data = genValueNoise(size, grid); break;
+    case 1: data = genPinkNoise(size, grid); break;
+    case 2: data = genPerlinNoise(size, grid); break;
+  }
+  self.postMessage({ id, data: data.buffer }, [data.buffer]);
+};
+
+function genValueNoise(size, gridSize) {
+  const grid = [];
+  for (let gy = 0; gy <= gridSize; gy++) {
+    grid[gy] = [];
+    for (let gx = 0; gx <= gridSize; gx++) grid[gy][gx] = Math.random();
+  }
+  const data = new Uint8Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const gx = (x / size) * gridSize, gy = (y / size) * gridSize;
+      const ix = Math.floor(gx), iy = Math.floor(gy);
+      const fx = gx - ix, fy = gy - iy;
+      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const v = grid[iy][ix] * (1 - sx) * (1 - sy) + grid[iy][ix+1] * sx * (1 - sy) + grid[iy+1][ix] * (1 - sx) * sy + grid[iy+1][ix+1] * sx * sy;
+      data[y * size + x] = (v * 255) | 0;
+    }
+  }
+  return data;
+}
+
+function genPinkNoise(size, gridSize) {
+  const octaves = 4;
+  const accum = new Float32Array(size * size);
+  for (let o = 0; o < octaves; o++) {
+    const gs = Math.max(gridSize >> o, 2);
+    if (gs < 2) break;
+    const w = 1.0 / (o + 1);
+    const grid = [];
+    for (let gy = 0; gy <= gs; gy++) {
+      grid[gy] = [];
+      for (let gx = 0; gx <= gs; gx++) grid[gy][gx] = Math.random();
+    }
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const gx = (x / size) * gs, gy = (y / size) * gs;
+        const ix = Math.floor(gx), iy = Math.floor(gy);
+        const fx = gx - ix, fy = gy - iy;
+        const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+        const v = grid[iy][ix] * (1 - sx) * (1 - sy) + grid[iy][ix+1] * sx * (1 - sy) + grid[iy+1][ix] * (1 - sx) * sy + grid[iy+1][ix+1] * sx * sy;
+        accum[y * size + x] += v * w;
+      }
+    }
+  }
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < accum.length; i++) { if (accum[i] < min) min = accum[i]; if (accum[i] > max) max = accum[i]; }
+  const rng = max - min || 1;
+  const data = new Uint8Array(size * size);
+  for (let i = 0; i < accum.length; i++) data[i] = ((accum[i] - min) / rng * 255) | 0;
+  return data;
+}
+
+function genPerlinNoise(size, gridSize) {
+  const gs = gridSize;
+  const grads = [];
+  for (let gy = 0; gy <= gs; gy++) {
+    grads[gy] = [];
+    for (let gx = 0; gx <= gs; gx++) {
+      const a = Math.random() * 2 * Math.PI;
+      grads[gy][gx] = { x: Math.cos(a), y: Math.sin(a) };
+    }
+  }
+  const dot = (gi, gj, x, y) => (x - gi) * grads[gj][gi].x + (y - gj) * grads[gj][gi].y;
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  const data = new Uint8Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const gxf = (x / size) * gs, gyf = (y / size) * gs;
+      const ix = Math.floor(gxf), iy = Math.floor(gyf);
+      const fx = gxf - ix, fy = gyf - iy;
+      const u = fade(fx), v = fade(fy);
+      const n = dot(ix, iy, gxf, gyf) * (1 - u) * (1 - v) + dot(ix+1, iy, gxf, gyf) * u * (1 - v) + dot(ix, iy+1, gxf, gyf) * (1 - u) * v + dot(ix+1, iy+1, gxf, gyf) * u * v;
+      data[y * size + x] = ((n * 0.5 + 0.5) * 255) | 0;
+    }
+  }
+  return data;
+}
+`], { type: 'application/javascript' }));
+
+const noiseWorker = new Worker(noiseWorkerBlob);
+
+function dataToTexture(data, size) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  const id = ctx.createImageData(size, size);
+  for (let i = 0; i < data.length; i++) {
+    id.data[i * 4] = data[i]; id.data[i * 4 + 1] = data[i];
+    id.data[i * 4 + 2] = data[i]; id.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// --- Dynamic noise texture generation ---
+let currentTexRes = 512;
+let currentGrid = 64;
+let valueTex, pinkTex, perlinTex;
+
+function rebuildNoiseTextures(res, grid) {
+  if (texturesReady && valueTex) {
+    valueTex.dispose(); pinkTex.dispose(); perlinTex.dispose();
+  }
+  currentTexRes = res;
+  currentGrid = grid;
+
+  let pending = 3;
+  const results = {};
+  const onDone = (type, data) => {
+    results[type] = data;
+    if (--pending > 0) return;
+    valueTex = dataToTexture(results[0], res);
+    pinkTex = dataToTexture(results[1], res);
+    perlinTex = dataToTexture(results[2], res);
+    if (texturesReady) {
+      grainPass.uniforms.uNoiseTex.value = valueTex;
+      grainPass.uniforms.uPinkNoiseTex.value = pinkTex;
+      grainPass.uniforms.uPerlinTex.value = perlinTex;
+    }
+  };
+
+  noiseWorker.onmessage = (e) => onDone(e.data.id, new Uint8Array(e.data.data));
+
+  for (let type = 0; type < 3; type++) {
+    noiseWorker.postMessage({ id: type, type, size: res, grid });
+  }
+}
+
+let texturesReady = false;
+rebuildNoiseTextures(512, 64);
+
+const StepBGrainShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uNoiseTex: { value: valueTex },
+    uPinkNoiseTex: { value: pinkTex },
+    uPerlinTex: { value: perlinTex },
+    uIntensity: { value: 0.5 },
+    uGrainDiameter: { value: 1.0 },
+    uGrainType: { value: 1.0 },
+    uNoiseType: { value: 0.0 },
+    uRenderMode: { value: 1.0 },
+    uBlendMode: { value: 0.0 },
+    uImageSize: { value: new THREE.Vector2(1024, 1024) },
+    uSeed: { value: Math.random() },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D uNoiseTex;
+    uniform sampler2D uPinkNoiseTex;
+    uniform sampler2D uPerlinTex;
+    uniform float uIntensity;
+    uniform float uGrainDiameter;
+    uniform float uGrainType;
+    uniform float uNoiseType;
+    uniform float uRenderMode;
+    uniform float uBlendMode;
+    uniform vec2 uImageSize;
+    uniform float uSeed;
+    varying vec2 vUv;
+
+    vec3 softLight(vec3 base, vec3 blend) {
+      vec3 d = step(blend, vec3(0.5));
+      vec3 dark = 2.0 * base * blend + base * base * (1.0 - 2.0 * blend);
+      vec3 light = 2.0 * base * (1.0 - blend) + sqrt(base) * (2.0 * blend - 1.0);
+      return mix(light, dark, d);
+    }
+
+    vec3 overlay(vec3 base, vec3 blend) {
+      vec3 d = step(base, vec3(0.5));
+      vec3 dark = 2.0 * base * blend;
+      vec3 light = 1.0 - 2.0 * (1.0 - base) * (1.0 - blend);
+      return mix(light, dark, d);
+    }
+
+    void main() {
+      vec4 texColor = texture2D(tDiffuse, vUv);
+      vec3 rgb = texColor.rgb;
+      if (uIntensity > 0.0) {
+        vec2 grainCoord = vUv * uImageSize / 64.0;
+        float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        float scaleMod = mix(1.85, 0.82, luma) * uGrainDiameter;
+
+        vec3 noiseVec = vec3(0.0);
+
+        // Single layer: rotate UV + uniform noise
+        float angle = uSeed * 6.2832;
+        float c = cos(angle), s = sin(angle);
+        vec2 uv = vec2(
+          grainCoord.x * c - grainCoord.y * s,
+          grainCoord.x * s + grainCoord.y * c
+        ) * 0.5 * scaleMod + vec2(uSeed * 0.5);
+
+        float n;
+        if (uNoiseType < 0.5) n = texture2D(uNoiseTex, uv).r;
+        else if (uNoiseType < 1.5) n = texture2D(uPinkNoiseTex, uv).r;
+        else n = texture2D(uPerlinTex, uv).r;
+
+        if (uRenderMode < 0.5) {
+          float nf;
+          if (uNoiseType < 0.5) nf = texture2D(uNoiseTex, uv * 3.0 + 1.7).r;
+          else if (uNoiseType < 1.5) nf = texture2D(uPinkNoiseTex, uv * 3.0 + 1.7).r;
+          else nf = texture2D(uPerlinTex, uv * 3.0 + 1.7).r;
+          float fineMix = clamp(uGrainType * 0.5, 0.0, 1.0);
+          n = mix(n, nf, fineMix);
+          noiseVec = vec3((n - 0.5) * 2.0);
+
+        } else if (uRenderMode < 1.5) {
+          float angleR = uSeed * 0.113 + 0.337;
+          float angleG = uSeed * 0.151 + 1.618;
+          float angleB = uSeed * 0.197 + 3.141;
+          float cr = cos(angleR), sr = sin(angleR);
+          float cg = cos(angleG), sg = sin(angleG);
+          float cb = cos(angleB), sb = sin(angleB);
+
+          vec2 px = grainCoord * 0.5 * scaleMod;
+          float fMix = clamp(uGrainType * 0.5, 0.0, 1.0);
+
+          vec2 rf = vec2(px.x * cr - px.y * sr, px.x * sr + px.y * cr) + vec2(uSeed * 0.3);
+          vec2 rc = rf * 0.3 + vec2(uSeed * 0.7 + 2.3);
+          vec2 gf = vec2(px.x * cg - px.y * sg, px.x * sg + px.y * cg) + vec2(17.0, 31.0) + vec2(uSeed * 0.3);
+          vec2 gc = gf * 0.3 + vec2(11.0, 19.0) + vec2(uSeed * 0.7 + 1.3);
+          vec2 bf = vec2(px.x * cb - px.y * sb, px.x * sb + px.y * cb) + vec2(43.0, 97.0) + vec2(uSeed * 0.3);
+          vec2 bc = bf * 0.3 + vec2(23.0, 57.0) + vec2(uSeed * 0.7 + 3.7);
+
+          float nR, nG, nB;
+          if (uNoiseType < 0.5) {
+            nR = (texture2D(uNoiseTex, rf).r-0.5)*(1.0-fMix)+(texture2D(uNoiseTex, rc).r-0.5)*fMix;
+            nG = (texture2D(uNoiseTex, gf).g-0.5)*(1.0-fMix)+(texture2D(uNoiseTex, gc).g-0.5)*fMix;
+            nB = (texture2D(uNoiseTex, bf).b-0.5)*(1.0-fMix)+(texture2D(uNoiseTex, bc).b-0.5)*fMix;
+          } else if (uNoiseType < 1.5) {
+            nR = (texture2D(uPinkNoiseTex, rf).r-0.5)*(1.0-fMix)+(texture2D(uPinkNoiseTex, rc).r-0.5)*fMix;
+            nG = (texture2D(uPinkNoiseTex, gf).g-0.5)*(1.0-fMix)+(texture2D(uPinkNoiseTex, gc).g-0.5)*fMix;
+            nB = (texture2D(uPinkNoiseTex, bf).b-0.5)*(1.0-fMix)+(texture2D(uPinkNoiseTex, bc).b-0.5)*fMix;
+          } else {
+            nR = (texture2D(uPerlinTex, rf).r-0.5)*(1.0-fMix)+(texture2D(uPerlinTex, rc).r-0.5)*fMix;
+            nG = (texture2D(uPerlinTex, gf).g-0.5)*(1.0-fMix)+(texture2D(uPerlinTex, gc).g-0.5)*fMix;
+            nB = (texture2D(uPerlinTex, bf).b-0.5)*(1.0-fMix)+(texture2D(uPerlinTex, bc).b-0.5)*fMix;
+          }
+          noiseVec = vec3(nR, nG, nB);
+
+        } else {
+          // True 3-layer model: small/medium/large, independent density/freq/weight
+          vec3 cs = vec3(1.0, 0.75, 0.55);
+          vec3 n5 = vec3(0.0);
+
+          // GrainType controls layer weight distribution
+          vec3 lw;
+          if (uGrainType < 0.5) lw = vec3(0.70, 0.25, 0.05);
+          else if (uGrainType < 1.5) lw = vec3(0.30, 0.45, 0.25);
+          else lw = vec3(0.05, 0.25, 0.70);
+
+          float baseFreq = scaleMod * 0.003;
+
+          // Layer 0: Small grains (high freq ×2.0, density 1.0)
+          vec2 uv0mx = grainCoord * baseFreq * 2.0;
+          vec3 smp0;
+          if (uNoiseType < 0.5) smp0 = vec3(texture2D(uNoiseTex, uv0mx*cs.r+vec2(uSeed*0.5)).r, texture2D(uNoiseTex, uv0mx*cs.g+vec2(uSeed*0.7+1.7)).g, texture2D(uNoiseTex, uv0mx*cs.b+vec2(uSeed*0.3+3.1)).b);
+          else if (uNoiseType < 1.5) smp0 = vec3(texture2D(uPinkNoiseTex, uv0mx*cs.r+vec2(uSeed*0.5)).r, texture2D(uPinkNoiseTex, uv0mx*cs.g+vec2(uSeed*0.7+1.7)).g, texture2D(uPinkNoiseTex, uv0mx*cs.b+vec2(uSeed*0.3+3.1)).b);
+          else smp0 = vec3(texture2D(uPerlinTex, uv0mx*cs.r+vec2(uSeed*0.5)).r, texture2D(uPerlinTex, uv0mx*cs.g+vec2(uSeed*0.7+1.7)).g, texture2D(uPerlinTex, uv0mx*cs.b+vec2(uSeed*0.3+3.1)).b);
+          smp0 = (smp0 - 0.5) * 2.0 * lw.x;
+          n5.r += smp0.r*0.55+smp0.g*0.25+smp0.b*0.2; n5.g += smp0.r*0.25+smp0.g*0.5+smp0.b*0.25; n5.b += smp0.r*0.15+smp0.g*0.25+smp0.b*0.6;
+
+          // Layer 1: Medium grains (freq ×0.8, density 0.6)
+          vec2 uv1mx = grainCoord * baseFreq * 0.8;
+          vec3 smp1;
+          if (uNoiseType < 0.5) smp1 = vec3(texture2D(uNoiseTex, uv1mx*cs.r+vec2(uSeed*0.5+1.3)).r, texture2D(uNoiseTex, uv1mx*cs.g+vec2(uSeed*0.7+2.9+1.7)).g, texture2D(uNoiseTex, uv1mx*cs.b+vec2(uSeed*0.3+4.7+3.1)).b);
+          else if (uNoiseType < 1.5) smp1 = vec3(texture2D(uPinkNoiseTex, uv1mx*cs.r+vec2(uSeed*0.5+1.3)).r, texture2D(uPinkNoiseTex, uv1mx*cs.g+vec2(uSeed*0.7+2.9+1.7)).g, texture2D(uPinkNoiseTex, uv1mx*cs.b+vec2(uSeed*0.3+4.7+3.1)).b);
+          else smp1 = vec3(texture2D(uPerlinTex, uv1mx*cs.r+vec2(uSeed*0.5+1.3)).r, texture2D(uPerlinTex, uv1mx*cs.g+vec2(uSeed*0.7+2.9+1.7)).g, texture2D(uPerlinTex, uv1mx*cs.b+vec2(uSeed*0.3+4.7+3.1)).b);
+          smp1 = (smp1 - 0.5) * 2.0 * 0.6 * lw.y;
+          n5.r += smp1.r*0.55+smp1.g*0.25+smp1.b*0.2; n5.g += smp1.r*0.25+smp1.g*0.5+smp1.b*0.25; n5.b += smp1.r*0.15+smp1.g*0.25+smp1.b*0.6;
+
+          // Layer 2: Large grains (freq ×0.25, density 0.35)
+          vec2 uv2mx = grainCoord * baseFreq * 0.25;
+          vec3 smp2;
+          if (uNoiseType < 0.5) smp2 = vec3(texture2D(uNoiseTex, uv2mx*cs.r+vec2(uSeed*0.5+2.6)).r, texture2D(uNoiseTex, uv2mx*cs.g+vec2(uSeed*0.7+5.8+1.7)).g, texture2D(uNoiseTex, uv2mx*cs.b+vec2(uSeed*0.3+9.4+3.1)).b);
+          else if (uNoiseType < 1.5) smp2 = vec3(texture2D(uPinkNoiseTex, uv2mx*cs.r+vec2(uSeed*0.5+2.6)).r, texture2D(uPinkNoiseTex, uv2mx*cs.g+vec2(uSeed*0.7+5.8+1.7)).g, texture2D(uPinkNoiseTex, uv2mx*cs.b+vec2(uSeed*0.3+9.4+3.1)).b);
+          else smp2 = vec3(texture2D(uPerlinTex, uv2mx*cs.r+vec2(uSeed*0.5+2.6)).r, texture2D(uPerlinTex, uv2mx*cs.g+vec2(uSeed*0.7+5.8+1.7)).g, texture2D(uPerlinTex, uv2mx*cs.b+vec2(uSeed*0.3+9.4+3.1)).b);
+          smp2 = (smp2 - 0.5) * 2.0 * 0.35 * lw.z;
+          n5.r += smp2.r*0.55+smp2.g*0.25+smp2.b*0.2; n5.g += smp2.r*0.25+smp2.g*0.5+smp2.b*0.25; n5.b += smp2.r*0.15+smp2.g*0.25+smp2.b*0.6;
+
+          noiseVec = n5;
+        }
+
+        float noiseLuma = dot(noiseVec, vec3(0.299, 0.587, 0.114));
+        noiseVec = mix(vec3(noiseLuma), noiseVec, 0.15);
+
+        // Perlin macro density modulation (when noise type is Perlin)
+        if (uNoiseType >= 1.5) {
+            vec2 macroUV = vUv * uImageSize / 128.0;
+            float macroDensity = texture2D(uPerlinTex, macroUV).r;
+            noiseVec *= 1.0 + (macroDensity - 0.5) * 0.24;
+        }
+
+        // D-log density response
+        vec3 safeRgb = clamp(rgb, 0.0, 1.0);
+        vec3 dLogToe = 0.08 * (vec3(1.0) - vec3(exp2(-8.0 * safeRgb.r), exp2(-8.0 * safeRgb.g), exp2(-8.0 * safeRgb.b)));
+        vec3 dLogShoulder = vec3(1.0) - vec3(exp2(-5.0 * safeRgb.r), exp2(-5.0 * safeRgb.g), exp2(-5.0 * safeRgb.b));
+        vec3 densityResponse = dLogToe + 0.7 * safeRgb + dLogShoulder * 0.22;
+        float shadowRoll = mix(0.45, 1.0, smoothstep(0.0, 0.12, luma));
+        float highlightRoll = mix(0.1, 1.0, 1.0 - smoothstep(0.72, 0.98, luma));
+
+        vec3 grainLayer = noiseVec * uIntensity * 5.0 * densityResponse * shadowRoll * highlightRoll + 0.5;
+        grainLayer = clamp(grainLayer, 0.0, 1.0);
+
+        if (uBlendMode < 0.5) {
+          vec3 srgb = sqrt(rgb);
+          srgb = softLight(srgb, grainLayer);
+          rgb = srgb * srgb;
+        } else if (uBlendMode < 1.5) {
+          rgb = softLight(rgb, grainLayer);
+        } else {
+          rgb = overlay(rgb, grainLayer);
+        }
+        rgb = clamp(rgb, 0.0, 1.0);
+      }
+
+      gl_FragColor = vec4(rgb, texColor.a);
+    }
+  `
+};
+
+// --- Halation Shaders ---
+
+const shaderVert = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+// Extract: threshold + knee + color shift
+const ExtractHalShader = {
+  uniforms: { tDiffuse: { value: null }, uHalThreshold: { value: 0.5 }, uHalStrength: { value: 0.6 }, uHalFilmType: { value: 1.0 } },
+  vertexShader: shaderVert,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uHalThreshold; uniform float uHalStrength; uniform float uHalFilmType;
+    varying vec2 vUv;
+    void main() {
+      vec4 sc = texture2D(tDiffuse, vUv);
+      float luma = dot(sc.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float th = max(0.1, uHalThreshold);
+      float knee = 0.25 * th;
+      float over = max(0.0, luma - (th - knee));
+      float hb = mix(0.0, over * over / (4.0 * knee), smoothstep(th - knee, th + knee, luma));
+      vec3 hal;
+      if (uHalFilmType < 0.5) { hal = vec3(hb * 0.9); }
+      else { hal = vec3(hb, hb * 0.25, hb * 0.05); }
+      hal *= 0.6;
+      gl_FragColor = vec4(hal, 1.0);
+    }
+  `
+};
+
+// Blur X: per-channel sigma (R widest, B narrowest)
+const BlurXShader = {
+  uniforms: { tDiffuse: { value: null }, uHalRadius: { value: 50.0 }, uResolution: { value: new THREE.Vector2(W, H) } },
+  vertexShader: shaderVert,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uHalRadius; uniform vec2 uResolution;
+    varying vec2 vUv;
+    void main() {
+      vec3 sum = vec3(0.0); vec3 tot = vec3(0.0);
+      float radR = max(1.0, uHalRadius * min(uResolution.x, uResolution.y) * 0.0007);
+      float radG = max(0.5, radR * 0.45); float radB = max(0.2, radR * 0.20);
+      vec2 texel = vec2(1.0 / uResolution.x, 0.0);
+      float stepScale = max(0.5, radR / 15.0);
+      for (int i = -15; i <= 15; i++) {
+        float fi = float(i); float dist = abs(fi) * stepScale;
+        vec3 g = vec3(exp(-dist*dist/(2.0*radR*radR)), exp(-dist*dist/(2.0*radG*radG)), exp(-dist*dist/(2.0*radB*radB)));
+        vec3 et = vec3(exp(-dist*2.0/radR), exp(-dist*2.0/radG), exp(-dist*2.0/radB));
+        vec3 w = g * 0.7 + et * 0.3;
+        vec3 s = texture2D(tDiffuse, vUv + texel * fi * stepScale).rgb;
+        sum += s * w; tot += w;
+      }
+      gl_FragColor = vec4(sum / tot, 1.0);
+    }
+  `
+};
+
+// Blur Y: same but vertical
+const BlurYShader = {
+  uniforms: { tDiffuse: { value: null }, uHalRadius: { value: 50.0 }, uResolution: { value: new THREE.Vector2(W, H) } },
+  vertexShader: shaderVert,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uHalRadius; uniform vec2 uResolution;
+    varying vec2 vUv;
+    void main() {
+      vec3 sum = vec3(0.0); vec3 tot = vec3(0.0);
+      float radR = max(1.0, uHalRadius * min(uResolution.x, uResolution.y) * 0.0007);
+      float radG = max(0.5, radR * 0.45); float radB = max(0.2, radR * 0.20);
+      vec2 texel = vec2(0.0, 1.0 / uResolution.y);
+      float stepScale = max(0.5, radR / 15.0);
+      for (int i = -15; i <= 15; i++) {
+        float fi = float(i); float dist = abs(fi) * stepScale;
+        vec3 g = vec3(exp(-dist*dist/(2.0*radR*radR)), exp(-dist*dist/(2.0*radG*radG)), exp(-dist*dist/(2.0*radB*radB)));
+        vec3 et = vec3(exp(-dist*2.0/radR), exp(-dist*2.0/radG), exp(-dist*2.0/radB));
+        vec3 w = g * 0.7 + et * 0.3;
+        vec3 s = texture2D(tDiffuse, vUv + texel * fi * stepScale).rgb;
+        sum += s * w; tot += w;
+      }
+      gl_FragColor = vec4(sum / tot, 1.0);
+    }
+  `
+};
+
+// Composite: soft screen blend (H + hal - H * hal * 0.5)
+const CompositeHalShader = {
+  uniforms: { tDiffuse: { value: null }, tScene: { value: null }, uHalStrength: { value: 0.6 } },
+  vertexShader: shaderVert,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform sampler2D tScene; uniform float uHalStrength;
+    varying vec2 vUv;
+    void main() {
+      vec3 sc = texture2D(tScene, vUv).rgb;
+      vec3 hal = texture2D(tDiffuse, vUv).rgb * uHalStrength;
+      vec3 res = sc + hal - sc * hal * 0.5;
+      gl_FragColor = vec4(res, 1.0);
+    }
+  `
+};
+
+const extractPass = new ShaderPass(ExtractHalShader);
+const blurXPass = new ShaderPass(BlurXShader);
+const blurYPass = new ShaderPass(BlurYShader);
+const compositePass = new ShaderPass(CompositeHalShader);
+compositePass.uniforms.tScene.value = sceneRT.texture;
+compositePass.uniforms.uHalStrength.value = 0.6;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(extractPass);
+composer.addPass(blurXPass);
+composer.addPass(blurYPass);
+composer.addPass(compositePass);
+
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 1.4, 0.8, 0.1);
+composer.addPass(bloomPass);
+
+const grainPass = new ShaderPass(StepBGrainShader);
+texturesReady = true;
+composer.addPass(grainPass);
+
+const shiftPass = new ShaderPass(RGBShiftShader);
+shiftPass.uniforms['amount'].value = 0.003;
+composer.addPass(shiftPass);
+
+// --- UI Controls ---
+
+const statusEl = document.getElementById('status');
+
+function updateStatus() {
+  const noiseNames = ['Value', 'Pink', 'Perlin'];
+  const renderNames = ['Single', 'Multi', '3D'];
+  const blendNames = ['Gamma', 'Linear', 'Overlay'];
+  const res = document.getElementById('texRes').value;
+  const grid = document.getElementById('gridSize').value;
+  statusEl.textContent =
+    `Noise: ${noiseNames[+document.getElementById('noiseType').value]}` +
+    ` | Render: ${renderNames[+document.getElementById('renderMode').value]}` +
+    ` | Blend: ${blendNames[+document.getElementById('blendMode').value]}` +
+    ` | Tex: ${res}×${res} Grid: ${grid}`;
+}
+
+// Grain intensity
+const grainInput = document.getElementById('grainIntensity');
+const grainVal = document.getElementById('grainVal');
+grainInput.addEventListener('input', () => {
+  const v = parseFloat(grainInput.value);
+  grainPass.uniforms.uIntensity.value = v;
+  grainVal.textContent = v.toFixed(2);
+});
+
+const sizeInput = document.getElementById('grainSize');
+const sizeVal = document.getElementById('sizeVal');
+sizeInput.addEventListener('input', () => {
+  const v = parseFloat(sizeInput.value);
+  grainPass.uniforms.uGrainDiameter.value = v;
+  sizeVal.textContent = v.toFixed(2);
+});
+
+// Grain type buttons
+document.querySelectorAll('.type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    grainPass.uniforms.uGrainType.value = parseFloat(btn.dataset.type);
+  });
+});
+
+// Noise type dropdown
+document.getElementById('noiseType').addEventListener('change', (e) => {
+  grainPass.uniforms.uNoiseType.value = parseFloat(e.target.value);
+  updateStatus();
+});
+
+// Render mode dropdown
+document.getElementById('renderMode').addEventListener('change', (e) => {
+  grainPass.uniforms.uRenderMode.value = parseFloat(e.target.value);
+  updateStatus();
+});
+
+// Blend mode dropdown
+document.getElementById('blendMode').addEventListener('change', (e) => {
+  grainPass.uniforms.uBlendMode.value = parseFloat(e.target.value);
+  updateStatus();
+});
+
+// Resolution dropdown
+document.getElementById('texRes').addEventListener('change', (e) => {
+  const res = parseInt(e.target.value);
+  const grid = parseInt(document.getElementById('gridSize').value);
+  rebuildNoiseTextures(res, grid);
+  updateStatus();
+});
+
+// Grid dropdown
+document.getElementById('gridSize').addEventListener('change', (e) => {
+  const grid = parseInt(e.target.value);
+  const res = parseInt(document.getElementById('texRes').value);
+  rebuildNoiseTextures(res, grid);
+  updateStatus();
+});
+
+// Bloom
+const bloomInput = document.getElementById('bloomStrength');
+const bloomVal = document.getElementById('bloomVal');
+bloomInput.addEventListener('input', () => {
+  const v = parseFloat(bloomInput.value);
+  bloomPass.strength = v;
+  bloomVal.textContent = v.toFixed(2);
+});
+
+// Shift
+const shiftInput = document.getElementById('shiftAmount');
+const shiftVal = document.getElementById('shiftVal');
+shiftInput.addEventListener('input', () => {
+  const v = parseFloat(shiftInput.value);
+  shiftPass.uniforms['amount'].value = v;
+  shiftVal.textContent = v.toFixed(3);
+});
+
+// Halation controls
+function updateHalUniforms() {
+  const s = parseFloat(document.getElementById('halStrength').value);
+  const r = parseFloat(document.getElementById('halRadius').value);
+  const t = parseFloat(document.getElementById('halThreshold').value);
+  const f = parseFloat(document.getElementById('halFilmType').value);
+  extractPass.uniforms.uHalStrength.value = s;
+  extractPass.uniforms.uHalThreshold.value = t;
+  extractPass.uniforms.uHalFilmType.value = f;
+  blurXPass.uniforms.uHalRadius.value = r;
+  blurYPass.uniforms.uHalRadius.value = r;
+  compositePass.uniforms.uHalStrength.value = s;
+  document.getElementById('halStrVal').textContent = s.toFixed(2);
+  document.getElementById('halRadVal').textContent = r.toFixed(0);
+  document.getElementById('halThrVal').textContent = t.toFixed(2);
+}
+document.getElementById('halStrength').addEventListener('input', updateHalUniforms);
+document.getElementById('halRadius').addEventListener('input', updateHalUniforms);
+document.getElementById('halThreshold').addEventListener('input', updateHalUniforms);
+document.getElementById('halFilmType').addEventListener('change', updateHalUniforms);
+
+// Import photo
+const fileInput = document.getElementById('fileInput');
+const importBtn = document.getElementById('importBtn');
+const info = document.getElementById('info');
+
+importBtn.addEventListener('click', () => fileInput.click());
+
+let imgW = 1024, imgH = 1024;
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const maxDim = 2048;
+    const s = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight, 1);
+    const c = document.createElement('canvas');
+    imgW = Math.round(img.naturalWidth * s);
+    imgH = Math.round(img.naturalHeight * s);
+    c.width = imgW; c.height = imgH;
+    c.getContext('2d')?.drawImage(img, 0, 0, imgW, imgH);
+
+    const imgRatio = imgW / imgH;
+    const screenRatio = W / H;
+    let scaleX = 1, scaleY = 1;
+    if (imgRatio > screenRatio) { scaleX = 1; scaleY = screenRatio / imgRatio; }
+    else { scaleY = 1; scaleX = imgRatio / screenRatio; }
+    mesh.scale.set(scaleX, scaleY, 1);
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    material.map = tex;
+    material.needsUpdate = true;
+    info.style.opacity = '0';
+    URL.revokeObjectURL(img.src);
+
+    // Update image size and randomize seed
+    grainPass.uniforms.uImageSize.value.set(imgW, imgH);
+    grainPass.uniforms.uSeed.value = Math.random();
+    updateStatus();
+  };
+  img.src = URL.createObjectURL(file);
+  fileInput.value = '';
+});
+
+// Resize
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  blurXPass.uniforms.uResolution.value.set(w, h);
+  blurYPass.uniforms.uResolution.value.set(w, h);
+  sceneRT.setSize(w, h);
+  compositePass.uniforms.tScene.value = sceneRT.texture;
+  composer.setSize(w, h);
+});
+
+updateStatus();
+
+// Animate
+function animate() {
+  requestAnimationFrame(animate);
+  if (compositePass.uniforms.uHalStrength.value > 0.001) {
+    renderer.setRenderTarget(sceneRT);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+  }
+  composer.render();
+}
+animate();
+</script>
+</body>
+</html>
