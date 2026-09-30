@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MYROLL · Grain</title>
+    <link rel="icon" href="/film.png" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #15171a; color: #ececec; font: 13px system-ui, sans-serif; }
+      header, footer { padding: 20px 28px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+      header { border-bottom: 1px solid #ffffff15; }
+      h1 { font-size: 15px; font-weight: 500; margin: 0; }
+      header p { color: #919399; margin: 0; }
+      main { height: calc(100dvh - 190px); min-height: 300px; overflow: auto; display: flex; padding: 24px; }
+      canvas { margin: auto; flex-shrink: 0; height: auto; image-rendering: auto; display: block; }
+      footer { border-top: 1px solid #ffffff15; }
+      label { display: flex; align-items: center; gap: 10px; color: #919399; }
+      input[type=range] { width: 120px; accent-color: #ededed; }
+      select, button, .upload { background: #222428; border: 1px solid #ffffff24; color: #ececec; padding: 7px 12px; border-radius: 4px; font: inherit; cursor: pointer; }
+      button:focus-visible, select:focus-visible, input:focus-visible, .upload:focus-within { outline: 2px solid #c4c9d3; outline-offset: 3px; }
+      output { color: #ececec; min-width: 34px; font-variant-numeric: tabular-nums; }
+      .upload input { width: 1px; height: 1px; position: absolute; opacity: 0; }
+      #status { padding: 0 28px 16px; color: #919399; font-size: 12px; }
+      button[aria-pressed=true] { background: #ececec; color: #15171a; }
+      @media (max-width: 640px) { header, footer { gap: 14px; padding: 16px; } main { height: calc(100dvh - 260px); padding: 16px; } #status { padding-left: 16px; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>MYROLL / Grain</h1>
+      <p>Density response · Three scales · Correlated particles</p>
+      <label class="upload">Import photo<input id="photo" type="file" accept="image/*" /></label>
+      <button id="chart" type="button">Gray chart</button>
+    </header>
+    <main><canvas id="preview" aria-label="Film grain preview"></canvas></main>
+    <footer>
+      <label>Amount <input id="amount" type="range" min="0" max="100" value="60" /><output id="amount-value">60</output></label>
+      <label>Size <input id="size" type="range" min="0.5" max="3" value="1" step="0.05" /><output id="size-value">1.00</output></label>
+      <label>Type <select id="type"><option value="0">Fine</option><option value="1" selected>Medium</option><option value="2">Coarse</option></select></label>
+      <label>View <select id="zoom"><option value="fit">Fit</option><option value="1">100%</option><option value="2">200%</option></select></label>
+      <button id="original" type="button" aria-pressed="false">Original</button>
+      <button id="seed" type="button">New pattern</button>
+    </footer>
+    <div id="status" role="status">Loading renderer…</div>
+    <script type="module" src="/src/grain-preview.ts"></script>
+  </body>
+</html>

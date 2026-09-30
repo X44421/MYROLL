@@ -7,6 +7,14 @@ export default defineConfig(() => {
   return {
     base: './', // 设为相对路径，为后续转换 Android (Capacitor/Cordova) 做准备
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        input: {
+          app: path.resolve(__dirname, 'index.html'),
+          grain: path.resolve(__dirname, 'grain-preview.html'),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
